@@ -1,0 +1,7 @@
+[package]
+name = "pricoleto"
+version = "0.1.0"
+authors = ["George Hosu <george@cerebralab.com>"]
+[dependencies]
+inotify = "0.4.1"
+yaml-rust = "0.3"
