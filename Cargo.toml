@@ -3,6 +3,6 @@ name = "pricoleto"
 version = "0.1.0"
 authors = ["George Hosu <george@cerebralab.com>"]
 [dependencies]
-notify = "4.0.1"
-inotify = "0.4.1"
+#notify = "4.0.1"
+inotify = { git = "https://github.com/hannobraun/inotify-rs.git", branch = "master" }
 yaml-rust = "0.3"

@@ -1,136 +1,92 @@
-extern crate notify;
+extern crate inotify;
 
+ use inotify::{event_mask, watch_mask, Inotify, WatchDescriptor};
 use std::env;
 use std::path::PathBuf;
-use std::sync::mpsc::{Sender, Receiver, channel};
-use std::time::Duration;
+use std::io;
+use std::fs::{self, DirEntry};
 use std::thread;
-use std::vec::Vec;
-use std::string::String;
-use std::process::Command;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
-use notify::{RecommendedWatcher, Watcher, RecursiveMode, DebouncedEvent};
-use notify::DebouncedEvent::*;
-
-fn rsync(source : String, destination : String, host : String) {
-    let mut command = Command::new("rsync");
-    command.arg("-zrupogtaH");
-    command.arg("--stats");
-    command.arg("--verbose");
-    command.arg("--progress");
-    command.arg("-e");
-    command.arg("ssh");
-    command.arg(source);
-    command.arg(format!("{}:{}", host, destination));
-    command.spawn().expect("Command failed to start");
+struct Watcher {
+    descriptor_to_dir : Arc<Mutex<HashMap<WatchDescriptor,PathBuf>>>,
+    inotify : Inotify,
 }
 
-fn remove(destination : String, host : String) {
-    let v: Vec<&str> = destination.rsplit(':').collect();
-    if v.len() == 2 {
-        let mut command = Command::new("ssh");
-        command.arg(" -rf ");
-        command.arg(format!("'{}'", v[1].clone()));
-        command.spawn().expect("Command failed to start");
-    } else {
-        let mut command = Command::new("rm");
-        command.arg("-rf");
-        command.arg(&format!("'{}'", v[0]));
-        command.spawn().expect("Command failed to start");
+impl Watcher {
+    pub fn new() ->Watcher {
+        let mut watcher : Watcher;
+        watcher.descriptor_to_dir = Arc::new(Mutex::new(HashMap::new()));
+        watcher.inotify = Inotify::init().expect("Error, failed to initialize inotify");
+        return watcher;
+    }
+
+    fn watch(&mut self, dir : &PathBuf, root : &PathBuf, root_remote : &PathBuf) {
+        let watch_descriptor = self.inotify.add_watch(dir.clone(), watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE,)
+            .expect( &format!("Failed to add inotify watch to directory: {}", dir.clone().as_os_str().to_string_lossy()) );
+        self.descriptor_to_dir.lock().unwrap().insert(watch_descriptor, dir)
+    }
+
+    fn watch_rec(&mut self, root : &PathBuf, root_remote : &PathBuf) {
+        for entry in fs::read_dir(root).unwrap() {
+            let path =  entry.unwrap().path();
+            if path.is_dir() {
+                self.watch(&path, &root_remote);
+                self.watch_rec(&path, &root_remote);
+            }
+        }
     }
 }
 
-fn mkdir(destination : String, host : String) {
-    let v: Vec<&str> = destination.rsplit(':').collect();
-    if v.len() == 2 {
-        let mut command = Command::new("ssh");
-        command.arg(v[0]);
-        command.arg(&format!("'mkdir -p {}'", v[1]));
-        command.spawn().expect("Command failed to start");
-    } else {
-        let mut command = Command::new("mkdir");
-        command.arg(&format!("' -p {}'", v[0]));
-        command.spawn().expect("Command failed to start");
-    }
-}
-
-fn rename(destination : String, new_path : String, host : String) {
-    let v: Vec<&str> = destination.rsplit(':').collect();
-    let mut command = Command::new("");
-    if v.len() == 2 {
-        command = Command::new("ssh");
-        command.arg(v[0])
-        .arg(&format!("'mv {} {}'", v[1], new_path));
-    } else {
-        command.arg(&format!("'mv {} {}'", v[0], new_path));
-    }
-    command.spawn().expect("Command failed to start");
-}
-
-fn rsync_many(path: PathBuf, destinations : &Vec<String>) {
-    for des in destinations {
-        rsync(String::from(path.to_str().unwrap()), String::from(path.to_str().unwrap()), des.clone());
-    }
-}
-
-fn remove_many(path: PathBuf, destinations : &Vec<String>) {
-    for des in destinations {
-        remove( String::from(path.to_str().unwrap()), des.clone());
-    }
-}
-
-fn mkdir_many(path: PathBuf, destinations : &Vec<String>) {
-    for des in destinations {
-        mkdir( String::from(path.to_str().unwrap()), des.clone());
-    }
-}
-
-fn rename_many(path: PathBuf, new_path: PathBuf, destinations : &Vec<String>) {
-    for des in destinations {
-        rename(  String::from(path.to_str().unwrap()),  String::from(new_path.to_str().unwrap()), des.clone());
-    }
-}
-
-fn sync_dir(receiver : Receiver<DebouncedEvent>, destinations : Vec<String>) {
-    let sync_loop_thread = thread::spawn(move || {
+fn monitor_dir(monitored_dir_buf : &PathBuf, remote_dir : &PathBuf) {
+    let watcher = Watcher::new();
+    //Start watching it for changes
+    watcher.watch_rec(&monitored_dir_buf);
+    //Do this for all watched directories
+    let monitoring_loop = thread::spawn(move || {
+        let mut event_buf = [0u8; 4096];
         loop {
-            match receiver.recv() {
-                Ok(Write(path)) => rsync_many(path, &destinations),
-                Ok(Create(path)) => {
-                    if path.is_dir() {
-                        mkdir_many(path, &destinations);
+            let events = inotify.read_events_blocking(&mut event_buf).expect("Failed to read inotify events");
+            for event in events {
+                if event.mask.contains(event_mask::CREATE) {
+                    if event.mask.contains(event_mask::ISDIR) {
+                        let mut new_dir = monitored_dir.clone();
+                        new_dir.push(PathBuf::from(event.name));
+                        inotify.add_watch(new_dir.clone() , watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE,)
+                        .expect( &format!("Failed to add inotify watch to newly created dir {}", new_dir.display()) );
+                        println!("Directory created: {:?}", event.name);
                     } else {
-                        rsync_many(path, &destinations);
+                        println!("File created: {:?}", event.name);
                     }
-                },
-                Ok(Remove(path)) => remove_many(path, &destinations),
-                Ok(Rename(path, new_path)) => rename_many(path, new_path, &destinations),
-                Ok(_) => { },
-                Err(e) => println!("watch error: {:?}", e),
+                } else if event.mask.contains(event_mask::DELETE) {
+                    if event.mask.contains(event_mask::ISDIR) {
+                        println!("Directory deleted: {:?}", event.name);
+                    } else {
+                        println!("File deleted: {:?}", event.name);
+                    }
+                } else if event.mask.contains(event_mask::MODIFY) {
+                    if event.mask.contains(event_mask::ISDIR) {
+                        println!("Directory modified: {:?}", event.name);
+                    } else {
+                        println!("File modified: {:?}", event.name);
+                    }
+                }
             }
         }
     });
-    sync_loop_thread.join();
-}
-
-fn add_watch(mut watcher : &mut RecommendedWatcher, dir : &PathBuf) {
-    watcher.watch(dir, RecursiveMode::Recursive).expect("Failed to watch directory");
+    monitoring_loop.join();
 }
 
 fn main() {
     //Get the path to the testing directory
     let execution_dir = env::current_dir().expect("Failed to determine current directory");
-
-    let mut monitored_dir_buf  = PathBuf::from(&execution_dir);
+    let mut monitored_dir_buf  = PathBuf::from(execution_dir);
     monitored_dir_buf.push("test_dir");
     let monitored_dir = monitored_dir_buf;
+    monitor_dir(&monitored_dir_buf);
 
-    let (tx, rx) = channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(0)).expect("Failed to initialize notification mechanism");
-    add_watch(&mut watcher, & monitored_dir);
-    let hosts = vec!( String::from("ryzen3") );
-    rsync_many(monitored_dir, &hosts);
-    sync_dir(rx, hosts);
 }
 
 //#[cfg(test)] mod tests { user super::* }
