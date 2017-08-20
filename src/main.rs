@@ -23,18 +23,18 @@ impl Watcher {
         return watcher;
     }
 
-    fn watch(&mut self, dir : &PathBuf, root : &PathBuf, root_remote : &PathBuf) {
+    fn watch(&mut self, root : &PathBuf, root_remote : &PathBuf, dir : &PathBuf) {
         let watch_descriptor = self.inotify.add_watch(dir.clone(), watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE,)
             .expect( &format!("Failed to add inotify watch to directory: {}", dir.clone().as_os_str().to_string_lossy()) );
         self.descriptor_to_dir.lock().unwrap().insert(watch_descriptor, dir)
     }
 
-    fn watch_rec(&mut self, root : &PathBuf, root_remote : &PathBuf) {
+    fn watch_rec(&mut self, root : &PathBuf, root_remote : &PathBuf, dir : &PathBuf) {
         for entry in fs::read_dir(root).unwrap() {
             let path =  entry.unwrap().path();
             if path.is_dir() {
-                self.watch(&path, &root_remote);
-                self.watch_rec(&path, &root_remote);
+                self.watch(&path, &root_remote, &dir);
+                self.watch_rec(&path, &root_remote, &dir);
             }
         }
     }
@@ -43,35 +43,35 @@ impl Watcher {
 fn monitor_dir(monitored_dir_buf : &PathBuf, remote_dir : &PathBuf) {
     let watcher = Watcher::new();
     //Start watching it for changes
-    watcher.watch_rec(&monitored_dir_buf);
+    let remote = &PathBuf::from("/tmp/test");
+    watcher.watch_rec(&monitored_dir_buf, &remote, &PathBuf::from(""));
     //Do this for all watched directories
     let monitoring_loop = thread::spawn(move || {
         let mut event_buf = [0u8; 4096];
         loop {
-            let events = inotify.read_events_blocking(&mut event_buf).expect("Failed to read inotify events");
+            let events = watcher.inotify.read_events_blocking(&mut event_buf).expect("Failed to read inotify events");
             for event in events {
                 if event.mask.contains(event_mask::CREATE) {
                     if event.mask.contains(event_mask::ISDIR) {
-                        let mut new_dir = monitored_dir.clone();
+                        let mut new_dir = PathBuf::new();
                         new_dir.push(PathBuf::from(event.name));
-                        inotify.add_watch(new_dir.clone() , watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE,)
-                        .expect( &format!("Failed to add inotify watch to newly created dir {}", new_dir.display()) );
+                        watcher.watch_rec(&monitored_dir_buf, &remote, &new_dir)
                         println!("Directory created: {:?}", event.name);
-                    } else {
-                        println!("File created: {:?}", event.name);
-                    }
-                } else if event.mask.contains(event_mask::DELETE) {
-                    if event.mask.contains(event_mask::ISDIR) {
-                        println!("Directory deleted: {:?}", event.name);
-                    } else {
-                        println!("File deleted: {:?}", event.name);
-                    }
-                } else if event.mask.contains(event_mask::MODIFY) {
-                    if event.mask.contains(event_mask::ISDIR) {
-                        println!("Directory modified: {:?}", event.name);
-                    } else {
-                        println!("File modified: {:?}", event.name);
-                    }
+                        } else {
+                            println!("File created: {:?}", event.name);
+                        }
+                    } else if event.mask.contains(event_mask::DELETE) {
+                        if event.mask.contains(event_mask::ISDIR) {
+                            println!("Directory deleted: {:?}", event.name);
+                        } else {
+                            println!("File deleted: {:?}", event.name);
+                        }
+                    } else if event.mask.contains(event_mask::MODIFY) {
+                        if event.mask.contains(event_mask::ISDIR) {
+                            println!("Directory modified: {:?}", event.name);
+                        } else {
+                            println!("File modified: {:?}", event.name);
+                        }
                 }
             }
         }
