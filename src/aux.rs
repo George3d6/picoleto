@@ -1,7 +1,8 @@
 use std::string::String;
 use std::path::PathBuf;
+use std::process::Command;
 
-fn rsync(source : String, destination : String, host : String) {
+pub fn rsync(source: &String, destination: &String, host: &String) {
     let mut command = Command::new("rsync");
     command.arg("-zrupogtaH");
     command.arg("--stats");
@@ -14,7 +15,7 @@ fn rsync(source : String, destination : String, host : String) {
     command.spawn().expect("Command failed to start");
 }
 
-fn remove(destination : String, host : String) {
+pub fn remove(destination: &String, host: &String) {
     let v: Vec<&str> = destination.rsplit(':').collect();
     if v.len() == 2 {
         let mut command = Command::new("ssh");
@@ -29,7 +30,7 @@ fn remove(destination : String, host : String) {
     }
 }
 
-fn mkdir(destination : String, host : String) {
+pub fn mkdir(destination: &String, host: &String) {
     let v: Vec<&str> = destination.rsplit(':').collect();
     if v.len() == 2 {
         let mut command = Command::new("ssh");
@@ -43,13 +44,14 @@ fn mkdir(destination : String, host : String) {
     }
 }
 
-fn rename(destination : String, new_path : String, host : String) {
+pub fn rename(destination: &String, new_path: &String, host: &String) {
     let v: Vec<&str> = destination.rsplit(':').collect();
     let mut command = Command::new("");
     if v.len() == 2 {
         command = Command::new("ssh");
-        command.arg(v[0])
-        .arg(&format!("'mv {} {}'", v[1], new_path));
+        command
+            .arg(v[0])
+            .arg(&format!("'mv {} {}'", v[1], new_path));
     } else {
         command.arg(&format!("'mv {} {}'", v[0], new_path));
     }
