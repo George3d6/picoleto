@@ -1,6 +1,10 @@
 extern crate inotify;
 
+#[macro_use]
+extern crate serde_derive;
+
 mod aux;
+mod config;
 
 use inotify::{event_mask, watch_mask, Inotify, WatchDescriptor};
 
@@ -154,6 +158,15 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String) {
 }
 
 fn main() {
+    let cfg = config::read_cfg(String::from("/etc/picoleto.config.json"));
+
+    for block in &cfg.synchronize {
+        println!("Found configuration value: '{}' '{}' '{}' '{}' !\n", block.remote,
+            block.remote,
+            block.host,
+            block.key);
+    }
+
     //Get the path to the testing directory
     let execution_dir = env::current_dir().expect("Failed to determine current directory");
     let mut monitored_dir_buf = PathBuf::from(execution_dir);
