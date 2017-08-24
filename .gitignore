@@ -3,3 +3,4 @@ target/*
 Cargo.lock
 test_dir
 test_dir/*
+picoleto.config.json

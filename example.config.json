@@ -1,0 +1,16 @@
+{
+    "synchronize" : [
+        {
+            "local" : "/home/username/picoleto/test_dir"
+            ,"remote" : "/tmp/test_dir"
+            ,"host" : ""
+            ,"key" : ""
+        }
+        ,{
+            "local" : "/home/username/picoleto/test_dir"
+            ,"remote" : "/home/username/test_picoleto"
+            ,"host" : "root@server"
+            ,"key" : "~/.ssh/my_key"
+        }
+    ]
+}

@@ -12,6 +12,7 @@ use std::env;
 use std::path::PathBuf;
 use std::fs;
 use std::thread;
+use std::vec::Vec;
 use std::collections::HashMap;
 
 fn pop_til_equal(against: PathBuf, mut compared: PathBuf) -> Option<PathBuf> {
@@ -70,15 +71,7 @@ impl Watcher {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 match pop_til_equal(root.clone(), path.clone()) {
-                    Some(new_dir) => {
-                        println!(
-                            "Adding: {0} with prefix {1} from path {2}",
-                            new_dir.display(),
-                            root.display(),
-                            path.display()
-                        );
-                        self.watch_rec(&root, &new_dir);
-                    }
+                    Some(new_dir) => self.watch_rec(&root, &new_dir),
                     None => {
                         println!("Crashing in watch_rec,this shouldn't happen,check source code");
                         std::process::exit(42)
@@ -89,11 +82,22 @@ impl Watcher {
     }
 }
 
-fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String) {
+fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, key: String) {
     let mut watcher = Watcher::new();
-    //Start watching it for changes
     watcher.watch_rec(&monitored_dir_buf, &PathBuf::from(""));
-    //Do this for all watched directories
+
+    //First rsync the directories in case the user is expecting them to sync automatically
+    let mut monitored_dir_buf_all = path_to_str(&monitored_dir_buf);
+    monitored_dir_buf_all.push_str("/");
+    let mut remote_dir_target = path_to_str(&remote_dir);
+    remote_dir_target.push_str("/");
+    aux::rsync(
+        &monitored_dir_buf_all,
+        &remote_dir_target,
+        &host,
+        &key,
+    );
+
     let mut event_buf = [0u8; 4096];
     loop {
         let events = watcher
@@ -101,13 +105,16 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String) {
             .read_events_blocking(&mut event_buf)
             .expect("Failed to read inotify events");
         for event in events {
-
             let mut modified = PathBuf::new();
             match watcher.descriptor_to_dir.get(&event.wd) {
                 Some(dir) => modified.push(dir),
                 None => modified.push(""),
             }
-            modified.push(PathBuf::from(event.name));
+            match event.name {
+                Some(name) => modified.push(PathBuf::from(name)),
+                //Dunno why this happens :/
+                None => continue,
+            }
             let modified_name = String::from(modified.clone().as_os_str().to_string_lossy());
             let mut modified_local_path = monitored_dir_buf.clone();
             modified_local_path.push(modified_name.clone());
@@ -117,66 +124,65 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String) {
             if event.mask.contains(event_mask::CREATE) {
                 if event.mask.contains(event_mask::ISDIR) {
                     watcher.watch_rec(&monitored_dir_buf, &modified);
-                    aux::mkdir(&path_to_str(&modified_host_path), &host);
-                    println!(
-                        "Directory created: {0} resulting in creation of {1}",
-                        modified_name,
-                        path_to_str(&modified_host_path)
-                    );
+                    aux::mkdir(&path_to_str(&modified_host_path), &host, &key);
                 } else {
                     aux::rsync(
                         &path_to_str(&modified_local_path),
                         &path_to_str(&modified_host_path),
                         &host,
+                        &key,
                     );
-                    println!("File created: {}", modified_name);
                 }
             } else if event.mask.contains(event_mask::DELETE) {
-                aux::remove(&path_to_str(&modified_host_path), &host);
-                println!("Deleted: {}", modified_name);
+                aux::remove(&path_to_str(&modified_host_path), &host, &key);
             } else if event.mask.contains(event_mask::MODIFY) {
                 aux::rsync(
                     &path_to_str(&modified_local_path),
                     &path_to_str(&modified_host_path),
                     &host,
+                    &key,
                 );
-                println!("Modified: {}", modified_name);
             } else if event.mask.contains(event_mask::MOVED_FROM) {
-                aux::remove(&path_to_str(&modified_host_path), &host);
-                println!("Moved From: {}", modified_name);
+                aux::remove(&path_to_str(&modified_host_path), &host, &key);
             } else if event.mask.contains(event_mask::MOVED_TO) {
-                aux::remove(&path_to_str(&modified_host_path), &host);
+                aux::remove(&path_to_str(&modified_host_path), &host, &key);
                 aux::rsync(
                     &path_to_str(&modified_local_path),
                     &path_to_str(&modified_host_path),
                     &host,
+                    &key,
                 );
-                println!("Moved to: {}", modified_name);
             }
         }
     }
 }
 
 fn main() {
-    let cfg = config::read_cfg(String::from("/etc/picoleto.config.json"));
+    let args: Vec<String> = env::args().collect();
+    let cfg_file_path;
+    if args.len() > 1 {
+        cfg_file_path = args[1].clone();
+    } else {
+        cfg_file_path = String::from("/etc/picoleto.config.json");
+    }
+    let cfg = config::read_cfg(cfg_file_path);
+    let mut threads = Vec::new();
 
-    for block in &cfg.synchronize {
-        println!("Found configuration value: '{}' '{}' '{}' '{}' !\n", block.remote,
-            block.remote,
-            block.host,
-            block.key);
+    for block in cfg.synchronize {
+        let handle = thread::spawn(move || {
+            monitor_dir(
+                PathBuf::from(block.local),
+                PathBuf::from(block.remote),
+                block.host,
+                block.key,
+            );
+        });
+        threads.push(handle);
     }
 
-    //Get the path to the testing directory
-    let execution_dir = env::current_dir().expect("Failed to determine current directory");
-    let mut monitored_dir_buf = PathBuf::from(execution_dir);
-    monitored_dir_buf.push("test_dir");
-    let monitored_dir = monitored_dir_buf;
-    monitor_dir(
-        monitored_dir,
-        PathBuf::from("/tmp/test"),
-        String::from("george@localhost"),
-    );
+    for thread in threads {
+        thread.join();
+    }
 }
 
 //#[cfg(test)] mod tests { user super::* }

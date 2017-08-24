@@ -8,7 +8,7 @@
         }
         ,{
             "local" : "/home/george/picoleto/test_dir"
-            ,"remote" : "/home/charon/test_dir"
+            ,"remote" : "/home/charon/test_picoleto"
             ,"host" : "root@vps395131.ovh.net"
             ,"key" : "/home/george/.ssh/ovh"
         }
