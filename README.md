@@ -1,6 +1,6 @@
 # Picoleto
 
-*Version: 0.1.0*
+*Version: 0.1.1*
 
 Used to keep directories synchronized based on the contents of a "source" directory.
 
