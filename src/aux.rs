@@ -1,5 +1,4 @@
 use std::string::String;
-use std::path::PathBuf;
 use std::process::Command;
 
 pub fn rsync(source: &String, destination: &String, host: &String, key : &String) {
