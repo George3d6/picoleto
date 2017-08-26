@@ -1,0 +1,10 @@
+[Unit]
+Description=Start a picoleto process to synchronize directories using the configuration in /etc/picoleto.config.json
+
+[Service]
+WorkingDirectory=/etc/
+ExecStart=/usr/bin/picoleto '/etc/picoleto.config.json'
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

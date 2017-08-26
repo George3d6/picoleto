@@ -186,9 +186,8 @@ fn main() {
         });
         threads.push(handle);
     }
-
     for thread in threads {
-        thread.join();
+        let _ = thread.join();
     }
 }
 
