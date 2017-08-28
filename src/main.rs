@@ -8,7 +8,7 @@ mod config;
 
 use inotify::{event_mask, watch_mask, Inotify, WatchDescriptor};
 use std::path::PathBuf;
-use std::{env, fs, thread, time};
+use std::{env, fs, thread};
 use std::vec::Vec;
 use std::collections::HashMap;
 
@@ -51,7 +51,8 @@ impl Watcher {
         let watch_descriptor = self.inotify
             .add_watch(
                 to_watch.clone(),
-                watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE,
+                watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE
+                | watch_mask::MOVED_FROM | watch_mask::MOVED_TO,
             )
             .expect(&format!(
                 "Failed to add inotify watch to directory: {}",
@@ -96,15 +97,13 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
     );
 
     let mut event_buf = [0u8; 4096];
-    let sleep_for = time::Duration::from_millis(1000);
     loop {
-        thread::sleep(sleep_for);
         let events = watcher
             .inotify
             .read_events_blocking(&mut event_buf)
             .expect("Failed to read inotify events");
+        println!("READ!");
         for event in events {
-            println!("HAPENING {}!\n", event.name.unwrap().to_str().unwrap());
             let mut modified = PathBuf::new();
             match watcher.descriptor_to_dir.get(&event.wd) {
                 Some(dir) => modified.push(dir),
@@ -112,7 +111,6 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
             }
             match event.name {
                 Some(name) => modified.push(PathBuf::from(name)),
-                //Dunno why this happens :/
                 None => continue,
             }
             let modified_name = String::from(modified.clone().as_os_str().to_string_lossy());
@@ -147,10 +145,20 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
                 );
             } else if event.mask.contains(event_mask::MOVED_FROM) {
                 println!("Moved from {}", &modified_host_path.display());
+                if event.mask.contains(event_mask::ISDIR) {
+                    for(wd,path) in &watcher.descriptor_to_dir {
+                        if path_to_str(path) == path_to_str(&modified_host_path) {
+                                watcher.inotify.rm_watch(wd.clone());
+                        }
+                    }
+                }
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
             } else if event.mask.contains(event_mask::MOVED_TO) {
                 println!("Moved to {}", &modified_host_path.display());
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
+                if event.mask.contains(event_mask::ISDIR) {
+                    watcher.watch_rec(&monitored_dir_buf, &modified);
+                }
                 aux::rsync(
                     &path_to_str(&modified_local_path),
                     &path_to_str(&modified_host_path),
