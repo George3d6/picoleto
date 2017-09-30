@@ -1,5 +1,4 @@
 extern crate inotify;
-
 #[macro_use]
 extern crate serde_derive;
 
@@ -102,7 +101,6 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
             .inotify
             .read_events_blocking(&mut event_buf)
             .expect("Failed to read inotify events");
-        println!("READ!");
         for event in events {
             let mut modified = PathBuf::new();
             match watcher.descriptor_to_dir.get(&event.wd) {

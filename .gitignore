@@ -2,5 +2,6 @@ target
 target/*
 Cargo.lock
 test_dir
-test_dir/*
+test_dir_1
+test_dir_2
 picoleto.config.json
