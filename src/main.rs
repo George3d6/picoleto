@@ -70,8 +70,8 @@ impl Watcher {
                 match pop_til_equal(root.clone(), path.clone()) {
                     Some(new_dir) => self.watch_rec(&root, &new_dir),
                     None => {
-                        println!("Crashing in watch_rec,this shouldn't happen,check source code");
-                        std::process::exit(42)
+                        println!("Crashing calling inotify's watch rec,this shouldn't happen,check source code");
+                        std::process::exit(1)
                     }
                 }
             }
@@ -118,7 +118,6 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
             modified_host_path.push(modified_name.clone());
 
             if event.mask.contains(event_mask::CREATE) {
-                println!("Created {}", &modified_host_path.display());
                 if event.mask.contains(event_mask::ISDIR) {
                     watcher.watch_rec(&monitored_dir_buf, &modified);
                     aux::mkdir(&path_to_str(&modified_host_path), &host, &key);
@@ -131,10 +130,8 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
                     );
                 }
             } else if event.mask.contains(event_mask::DELETE) {
-                println!("Deleted {}", &modified_host_path.display());
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
             } else if event.mask.contains(event_mask::MODIFY) {
-                println!("Modified {}", &modified_host_path.display());
                 aux::rsync(
                     &path_to_str(&modified_local_path),
                     &path_to_str(&modified_host_path),
@@ -142,17 +139,15 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
                     &key,
                 );
             } else if event.mask.contains(event_mask::MOVED_FROM) {
-                println!("Moved from {}", &modified_host_path.display());
                 if event.mask.contains(event_mask::ISDIR) {
                     for(wd,path) in &watcher.descriptor_to_dir {
                         if path_to_str(path) == path_to_str(&modified_host_path) {
-                                watcher.inotify.rm_watch(wd.clone());
+                            watcher.inotify.rm_watch(wd.clone());
                         }
                     }
                 }
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
             } else if event.mask.contains(event_mask::MOVED_TO) {
-                println!("Moved to {}", &modified_host_path.display());
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
                 if event.mask.contains(event_mask::ISDIR) {
                     watcher.watch_rec(&monitored_dir_buf, &modified);
@@ -163,8 +158,6 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
                     &host,
                     &key,
                 );
-            } else {
-                println!("Other event\n");
             }
         }
     }
@@ -196,5 +189,3 @@ fn main() {
         let _ = thread.join();
     }
 }
-
-//#[cfg(test)] mod tests { user super::* }

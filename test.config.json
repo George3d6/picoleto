@@ -1,8 +1,8 @@
 {
      "synchronize" : [
         {
-            "local" : "/home/george/picoleto/test_dir_1"
-            ,"remote" : "/home/george/picoleto/test_dir_2"
+            "local" : "~/picoleto/test_dir_1"
+            ,"remote" : "~/picoleto/test_dir_2"
             ,"host" : ""
             ,"key" : ""
         }
