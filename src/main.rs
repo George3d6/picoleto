@@ -5,7 +5,7 @@ extern crate serde_derive;
 mod aux;
 mod config;
 
-use inotify::{event_mask, watch_mask, Inotify, WatchDescriptor};
+use inotify::{EventMask, WatchMask, Inotify, WatchDescriptor};
 use std::path::PathBuf;
 use std::{env, fs, thread};
 use std::vec::Vec;
@@ -50,8 +50,8 @@ impl Watcher {
         let watch_descriptor = self.inotify
             .add_watch(
                 to_watch.clone(),
-                watch_mask::MODIFY | watch_mask::CREATE | watch_mask::DELETE
-                | watch_mask::MOVED_FROM | watch_mask::MOVED_TO,
+                WatchMask::MODIFY | WatchMask::CREATE | WatchMask::DELETE
+                | WatchMask::MOVED_FROM | WatchMask::MOVED_TO,
             )
             .expect(&format!(
                 "Failed to add inotify watch to directory: {}",
@@ -117,8 +117,8 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
             let mut modified_host_path = remote_dir.clone();
             modified_host_path.push(modified_name.clone());
 
-            if event.mask.contains(event_mask::CREATE) {
-                if event.mask.contains(event_mask::ISDIR) {
+            if event.mask.contains(EventMask::CREATE) {
+                if event.mask.contains(EventMask::ISDIR) {
                     watcher.watch_rec(&monitored_dir_buf, &modified);
                     aux::mkdir(&path_to_str(&modified_host_path), &host, &key);
                 } else {
@@ -129,17 +129,17 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
                         &key,
                     );
                 }
-            } else if event.mask.contains(event_mask::DELETE) {
+            } else if event.mask.contains(EventMask::DELETE) {
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
-            } else if event.mask.contains(event_mask::MODIFY) {
+            } else if event.mask.contains(EventMask::MODIFY) {
                 aux::rsync(
                     &path_to_str(&modified_local_path),
                     &path_to_str(&modified_host_path),
                     &host,
                     &key,
                 );
-            } else if event.mask.contains(event_mask::MOVED_FROM) {
-                if event.mask.contains(event_mask::ISDIR) {
+            } else if event.mask.contains(EventMask::MOVED_FROM) {
+                if event.mask.contains(EventMask::ISDIR) {
                     for(wd,path) in &watcher.descriptor_to_dir {
                         if path_to_str(path) == path_to_str(&modified_host_path) {
                             watcher.inotify.rm_watch(wd.clone());
@@ -147,9 +147,9 @@ fn monitor_dir(monitored_dir_buf: PathBuf, remote_dir: PathBuf, host: String, ke
                     }
                 }
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
-            } else if event.mask.contains(event_mask::MOVED_TO) {
+            } else if event.mask.contains(EventMask::MOVED_TO) {
                 aux::remove(&path_to_str(&modified_host_path), &host, &key);
-                if event.mask.contains(event_mask::ISDIR) {
+                if event.mask.contains(EventMask::ISDIR) {
                     watcher.watch_rec(&monitored_dir_buf, &modified);
                 }
                 aux::rsync(
